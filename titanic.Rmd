@@ -457,6 +457,13 @@ xgb.plot.deepness(model = xgbFit$finalModel,which = 'med.depth')
 
 
 ```{r}
+ctrl <- trainControl(method = "repeatedcv",
+                     repeats = 1,
+                     verboseIter = T,
+                     classProbs = TRUE,
+                     summaryFunction = twoClassSummary,
+                     # sampling = 'smote'
+                     )
 gbmGrid <- expand.grid(
    n.trees=c(500,700,900,1100),
    interaction.depth=c(1,2,3),
@@ -464,10 +471,11 @@ gbmGrid <- expand.grid(
    n.minobsinnode=10
 )
 
-boost.train <- train.imp
+dumV <- dummyVars(formula = Survived~.,data = train.imp)
+Dtrain <- predict(dumV,train.imp)
 
 boostFit <- train(
-    x = data.frame(boost.train[,-1]),
+    x = Dtrain,
     y = boost.train$Survived,
     trControl=ctrl,
     method='gbm',
@@ -530,7 +538,7 @@ train.imp$Couple <- ifelse(train.imp$TotalFam==2,1,0)
 train.imp$Family <- ifelse(train.imp$TotalFam>2,1,0)
 
 
-test.imp$Fare[is.na(test.imp$Fare)] <- median(test.imp$Fare)
+test.imp$Fare[is.na(test.imp$Fare)] <- 14.4542
 test.imp$Fare[test.imp$Fare>159] <- 159
 
 test.imp %<>%   
@@ -549,8 +557,8 @@ test.imp$Ticket <- NULL
 
 
 ```{r}
-boostPred <- predict(object = boostFit,
-                     newdata = test.imp)
+# boostPred <- predict(object = boostFit,
+                     # newdata = test.imp)
 
 dumV <- dummyVars(formula = ~.,data = test.imp)
 Dtest <- predict(dumV,test.imp)
@@ -570,7 +578,7 @@ PID <- PID$PassengerId
 output <- write.csv(
     x = data.frame(
         PassengerId = PID,
-        Survived = as.numeric(xgbPred)-1
+        Survived = as.numeric(xgbPred)*-1+2
     ),
     file = 'aug30.csv',
     row.names = F
