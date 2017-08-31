@@ -3,16 +3,14 @@ title: "Kaggle Titanic Dataset"
 author: 'Rahul Sangole'
 date: Dec 20, 2016
 output:
-    html_document:
-        toc: true
-        toc_float:
-            collapsed: false
-        toc_depth: 3
-        number_sections: false
-        smooth_scroll: true
-        theme: 'cosmo'
-        code_folding: hide
-
+  html_notebook: 
+    code_folding: hide
+    fig_height: 3
+    fig_width: 5
+    highlight: pygments
+    theme: flatly
+    toc: yes
+    toc_float: yes
 ---
 # Objectives
 
@@ -179,8 +177,9 @@ p <- lapply(X = c('Pclass','Sex','SibSp','Parch','Embarked'),
                 geom_bar(position="dodge")+
                 theme(legend.position="none"))
 legend <- get_legend(ggplot(data = train.raw,aes(x=Pclass,fill=Survived))+geom_bar())
-grid.arrange(p[[1]],p[[2]],p[[3]],p[[4]],p[[5]],legend,layout_matrix = cbind(c(1,2,3),c(4,5,NA),c(6,6,6)),widths=c(3,3,1))
-round(prop.table(table(train.raw$Embarked,train.raw$Pclass),margin = 2),2)
+grid.arrange(p[[1]],p[[2]],p[[3]],p[[4]],p[[5]],legend,layout_matrix =
+                 cbind(c(1,2,3),c(4,5,NA),c(6,6,6)),widths=c(3,3,1))
+# round(prop.table(table(train.raw$Embarked,train.raw$Pclass),margin = 2),2)
 ```
 
 ### Multivariate Analyses
@@ -197,7 +196,7 @@ Here is a comparison of the same information between a boxplot and a beanplot. W
 
 [^3]: Read more about beanplots here: https://cran.r-project.org/web/packages/beanplot/vignettes/beanplot.pdf
 
-```{r, message=FALSE, warning=FALSE}
+```{r, fig.height=3, fig.width=5, message=FALSE, warning=FALSE}
 ggplot(train.raw,aes(y=Age,x=Pclass))+geom_boxplot(aes(fill=Survived))+theme_bw()
 beanplot(Age~Survived*Pclass,side='b',train.raw,col=list('yellow','orange'),
          border = c('yellow2','darkorange'),ll = 0.05,boxwex = .5,
@@ -217,7 +216,6 @@ These could be simple rules either hard coded during model building: something a
 
 ```{r}
 ggplot(train.raw,aes(y=SibSp,x=Parch))+
-    geom_point(aes(color=Survived,shape=Pclass))+
     geom_jitter(aes(color=Survived,shape=Pclass))+
     theme_bw()+
     scale_shape(solid=F)+
@@ -225,7 +223,6 @@ ggplot(train.raw,aes(y=SibSp,x=Parch))+
     geom_hline(yintercept = 3,color='darkblue',lty=3)
 ```
 
-***
 ***
 
 # Data Preparation
@@ -239,10 +236,9 @@ Starting with the easier one first:
 summary(train.raw$Embarked)
 train.imp <- train.raw
 train.imp$Embarked[is.na(train.imp$Embarked)]='S'
-summary(train.imp$Embarked)
 ```
 
-**Age**:
+**Names, Titles & Age**:
 
 The names have titles embedded in the strings. I can extract these using regex. Master, Miss, Mr and Mrs are the most popular - no surprise there, with lots of other titles.  Here's the distribution of the titles by age. These can be used to impute the missing age values.
 
@@ -253,17 +249,22 @@ train.raw$title <- as.factor(train.raw$title)
 train.raw %>%
     na.omit() %>%
     group_by(title) %>%
-    dplyr::summarise(Count=n(),Avg=round(mean(Age),0)) %>%
-    arrange(-Avg)
+    dplyr::summarise(Count=n(), Median_Age=round(median(Age),0)) %>%
+    arrange(-Median_Age) -> MedianAge
 
-ggplot(train.raw,aes(x=title,y=Age))+
-    geom_point(shape=21,alpha=.6,col='blue')+
-    geom_jitter(shape=21,alpha=.6,col='blue')+
-    theme_bw()+
-    theme(axis.text.x = element_text(angle = 45, hjust = 1),legend.position="none")
+kable(MedianAge, format = 'html',align = 'c')
 ```
 
-Grouping similar titles together, I've kept 4 titles - Senior, Mr, Mrs and Miss.
+```{r, message=FALSE, warning=FALSE}
+ggplot(train.raw,aes(x=title,y=Age))+
+    stat_summary(aes(y = Age,group=1), fun.y=median, colour="red", geom="point",group=1)+
+    geom_jitter(shape=21,alpha=.6,col='blue')+
+    theme_bw()+
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),legend.position="none")+
+    labs(caption='Red points are median values')
+```
+
+Grouping similar titles together, I've kept a few titles - Officer, Royalty, Mr, Mrs and Miss.
 
 ```{r}
 train.imp <- train.raw
@@ -273,16 +274,21 @@ train.imp$title[train.imp$title %in% c('Don','Dr','Rev','Sir','Jonkheer','Counte
 train.imp$title[train.imp$title %in% c('Mrs','Mme')] <- 'Mrs'
 train.imp$title[train.imp$title %in% c('Ms','Mlle')] <- 'Miss'
 train.imp$title <- as.factor(train.imp$title)
-table(train.imp$title)
+
+train.imp %>% 
+    group_by(title) %>% 
+    summarise(Median_Age=median(Age,na.rm = T)) %>% 
+    kable(format = 'html',align = 'c')
+
 ggplot(train.imp,aes(x=title,y=Age))+
-    geom_point(shape=21,alpha=.6,col='blue')+
     geom_jitter(shape=21,alpha=.6,col='blue')+
+    stat_summary(aes(y = Age,group=1), fun.y=median, colour="red", geom="point",group=1)+
     theme_bw()+
-    theme(axis.text.x = element_text(angle = 45, hjust = 1),legend.position="none")
-train.imp %>% group_by(title) %>% summarise(Median_Age=median(Age,na.rm = T))
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),legend.position="none")+
+    labs(caption='Red points are median values')
 ```
 
-I'm trying out two strategies to impute age, just for kicks. First, a regression tree using the `rpart` method. 10 fold cross validation across a tuning grid of 20 values of 'maxdepth'. RMSE stablizes at a depth of 12, with a value of 12.01.
+Now for the missing Age values. I'm trying out two strategies to impute age, just for kicks. First, a regression tree using the `rpart` method. 5-repeat 10-fold cross validation across a tuning grid of 20 values of `maxdepth`. RMSE stablizes at a depth of 14, with a value of 12.2.
 
 ```{r}
 age.predictors <- train.imp %>% 
@@ -302,15 +308,15 @@ rpartFit <- train(Age~.,
                   )
 rpartFit
 plot(rpartFit)
-plot(rpartFit$finalModel)
-text(rpartFit$finalModel)
+plot(rpartFit$finalModel,margin=0.02)
+text(rpartFit$finalModel,cex=0.8)
 ```
 
-Another way is to run a randomforest with a search over 10 values of `mtry` using 10-fold cross validation. As we can see mtry=4 is the optimal value which results in the lowest RMSE; much better than the rpart model.
+Another way is to run a randomforest with a search over values of `mtry` using 5-repeat 10-fold cross validation. As we can see mtry=4 is the optimal value which results in the lowest RMSE of 11.4; much better than the rpart model.
 
 ```{r}
 set.seed(1234)
-rfGrid <- data.frame(mtry=seq(1,8,1))
+rfGrid <- data.frame(mtry=seq(1,6,1))
 ctrl <- trainControl(method = "repeatedcv",
                      repeats = 5
                      )
@@ -321,35 +327,51 @@ rfFit <- train(Age~.,
                   tuneGrid = rfGrid)
 rfFit
 plot(rfFit)
-plot(rfFit$finalModel)
 ```
 
-I'm going to use the randomForest model. Using the `predict.train()` to predict values of age and plug them back into the imputed data.
+I'm going to use the randomForest model. Using the `predict.train()` to predict values of age and plug them back into the imputed data. You can see the blue points which are the imputed values of `Age`. What I noticed is that for all the titles, the imputed Age value seems to be distributed fairly well, except Master. For Master, the three imputed are definitely outliers. I'm going to force these to the median Age.
 
 ```{r}
 missing.age <- train.imp %>% filter(is.na(Age))
 age.predicted <- predict(rfFit, newdata = missing.age)
+train.imp %>% 
+    mutate(AgeMissing = is.na(Age),
+           Age = ifelse(AgeMissing,age.predicted,Age)) %>% 
+    ggplot(aes(x=title,y=Age))+
+    stat_summary(aes(y = Age,group=1), fun.y=median, colour="red", geom="point",group=1)+
+    geom_jitter(aes(y=Age,col=AgeMissing),shape=2)+
+    theme_bw()+
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),legend.position="none")+
+    labs(caption='Red points are median values')
 train.imp$Age[is.na(train.imp$Age)] <- age.predicted
+train.imp$Age[train.imp$title=='Master' & train.imp$Age > 20] <- median(train.imp$Age[train.imp$title=='Master'],na.rm = T)
 ```
 
 ## Derived Variables
 
-Trying out one engineered variable here - is the passenger a child or not?
+
+**Child?:** Trying out two engineered variables here - is the passenger a child or not? And is s/he close enough to be considered a adult by chance?
 
 ```{r}
 train.imp$child <- 0
 train.imp$child[train.imp$Age<18] <- 1
-# train.imp$child <- factor(train.imp$child,levels = c(0,1),labels = c('Adult','Child'))
 train.imp$almostadult <- as.numeric(between(train.imp$Age,16,18))
 ```
 
-Let's also create some variables that talk about family sizes.
+**Really young, or really old?:** Really young ones and older folks would get priority perhaps. Creating two categorical binary variables for these conditions.
+```{r}
+train.imp$Young <- ifelse(train.imp$Age<10,1,0)
+train.imp$Seniors <- ifelse(train.imp$Age>60,1,0)
+```
+
+
+**Family related:** Let's also create some variables that talk about family sizes. What's the total family size -- continous variable `TotalFam`. Is the person single, part of a couple or a family? Three categorical variables for these.
 
 ```{r}
 train.imp$TotalFam <- train.imp$SibSp + train.imp$Parch + 1
-train.imp$LastName <- train.imp$Name %>% str_extract(pattern = '[a-zA-Z]+(?=,)')
-train.imp$FamSize <- paste0(train.imp$TotalFam,train.imp$LastName)
-train.imp$LastName <- NULL
+# train.imp$LastName <- train.imp$Name %>% str_extract(pattern = '[a-zA-Z]+(?=,)')
+# train.imp$FamSize <- paste0(train.imp$TotalFam,train.imp$LastName)
+# train.imp$LastName <- NULL
 train.imp$Name <- NULL
 train.imp$LargeParCh <- as.numeric(train.imp$Parch>=3)
 train.imp$LargeSibSp <- as.numeric(train.imp$SibSp>=3)
@@ -358,7 +380,7 @@ train.imp$Couple <- ifelse(train.imp$TotalFam==2,1,0)
 train.imp$Family <- ifelse(train.imp$TotalFam>2,1,0)
 ```
 
-Extracting the cabin alphabet and number from the cabin variable. Also, some folks have more than 1 cabin. Wonder if that's important. Since lots of unknowns in the Cabin variable, all NA values are replaced by 'U'. Refering to the deck diagram, the topmost decks are A and B, which are closest to the lifeboats. Perhaps that's important too.
+**Cabin related:** Extracting the cabin alphabet and number from the cabin variable. Also, some folks have more than 1 cabin. Wonder if that's important. Since lots of unknowns in the Cabin variable, all NA values are replaced by 'U'. Refering to the deck diagram, the topmost decks are A and B, which are closest to the lifeboats. Perhaps that's important too.
 
 ```{r}
 train.imp$CabinMissing <- as.numeric(is.na(train.raw$Cabin))
@@ -381,7 +403,8 @@ train.imp$Ticket %>% table() %>% as.numeric() %>% histogram
 
 There seems to be a bit of a pattern here. Tickets starting with 1 are mostly 1st class, those starting with 2 are 2nd class, and 3 - 3rd class. But, I feel it's a very loose association.
 ```{r}
-train.imp %>% group_by(Pclass) %>% dplyr::select(Ticket,Pclass) %>% sample_n(2)
+train.imp %>% group_by(Pclass) %>% dplyr::select(Ticket,Pclass) %>% sample_n(2) %>% 
+    kable()
 ```
 
 What I'm going to do is clean up the columns (remove special characters, spaces etc), then split the `Ticket` column into two: `TicketChar` and `TicketNum`. Perhaps the `TicketChar` has enough explanatory power to be worth this effort.
@@ -423,10 +446,7 @@ ctrl <- trainControl(method = "repeatedcv",
                      summaryFunction = twoClassSummary,
                      sampling = 'smote'
                      )
-```
 
-
-```{r}
 xgbGrid <- expand.grid(
     nrounds=c(3,4,5),
     max_depth=c(4,5,6),
@@ -443,7 +463,7 @@ xgbFit <- train(
     y=train.imp$Survived,
     method = 'xgbTree',
     trControl = ctrl,
-    metric = "Kappa",
+    # metric = "Kappa",
     tuneGrid = xgbGrid,
     verbose = TRUE
 )
@@ -452,7 +472,45 @@ plot(xgbFit)
 xgb.importance(feature_names = colnames(Dtrain),model = xgbFit$finalModel)
 xgb.importance(feature_names = colnames(Dtrain),model = xgbFit$finalModel) %>%
 xgb.ggplot.importance()
-xgb.plot.deepness(model = xgbFit$finalModel,which = 'med.depth')
+
+densityplot(xgbFit,pch='|')
+predict(xgbFit,type = 'raw') -> train.Class
+predict(xgbFit,type = 'prob') -> train.Probs
+histogram(~Survived+Dead,train.Probs)
+```
+
+
+
+```{r}
+# response <- 'Survived'
+# predictors <- names(train.imp)[names(train.imp)!=response]
+ctrl <- trainControl(method = "repeatedcv",
+                     repeats = 1,
+                     verboseIter = T,
+                     classProbs = TRUE,
+                     summaryFunction = twoClassSummary,
+                     sampling = 'smote'
+                     )
+
+rfGrid <- data.frame(mtry=seq(8,12))
+
+rfFit.y <- train(
+    form = Survived~.,
+    data = train.imp,
+    method = 'rf',
+    trControl = ctrl,
+    # metric = "Kappa",
+    tuneGrid = rfGrid,
+    verbose = TRUE
+)
+rfFit.y
+plot(rfFit.y)
+
+
+densityplot(rfFit.y,pch='|')
+predict(rfFit.y,type = 'raw') -> train.rf.Class
+predict(rfFit.y,type = 'prob') -> train.rf.Probs
+histogram(~Survived+Dead,train.rf.Probs)
 ```
 
 
@@ -487,6 +545,14 @@ xyplot(oobag.improve~1:1100,data=boostFit$finalModel,alpha=.5,xlab = 'n.trees')
 plot(varImp(boostFit))
 ```
 
+## Compare models
+
+```{r}
+re <- resamples(x = list(xgb=xgbFit,rf=rfFit.y))
+summary(re)
+```
+
+
 # Evaluation
 
 ```{r}
@@ -506,7 +572,7 @@ test.imp$title <- as.factor(test.imp$title)
 
 missing.age <- test.imp %>% filter(is.na(Age)) %>% dplyr::select(-Cabin,-Ticket)
 age.predicted <- predict(rfFit, newdata = missing.age)
-#age.predicted[missing.age$title=='Master'] <- 3.5
+age.predicted[missing.age$title=='Master'] <- 4
 test.imp$Age[is.na(test.imp$Age)] <- age.predicted
 
 test.imp$child <- 0
@@ -527,9 +593,9 @@ test.imp$Cabin <- NULL
 
 
 test.imp$TotalFam <- test.imp$SibSp + test.imp$Parch + 1
-test.imp$LastName <- test.imp$Name %>% str_extract(pattern = '[a-zA-Z]+(?=,)')
-test.imp$FamSize <- paste0(test.imp$TotalFam,test.imp$LastName)
-test.imp$LastName <- NULL
+# test.imp$LastName <- test.imp$Name %>% str_extract(pattern = '[a-zA-Z]+(?=,)')
+# test.imp$FamSize <- paste0(test.imp$TotalFam,test.imp$LastName)
+# test.imp$LastName <- NULL
 test.imp$Name <- NULL
 test.imp$LargeParCh <- as.numeric(test.imp$Parch>=3)
 test.imp$LargeSibSp <- as.numeric(test.imp$SibSp>=3)
