@@ -1,14 +1,15 @@
 ---
-title: "Kaggle Titanic Dataset"
+title: "Kaggle Titanic Competition - Data Exploration & Model Building"
 author: 'Rahul Sangole'
-date: Dec 20, 2016
+date: Aug 31, 2017
 output:
   html_notebook: 
     code_folding: hide
+    collapsed: no
     fig_height: 3
     fig_width: 5
     highlight: pygments
-    theme: flatly
+    theme: journal
     toc: yes
     toc_float: yes
 ---
@@ -126,7 +127,7 @@ round(prop.table(table(train.raw$Survived)),2)
 
 ***
 
-## Predictor Variables {.tabset .tabset-fade .tabset-pills}
+## Predictor Variables {.tabset .tabset-fade}
 
 ### Univariate & Bivariate
 
@@ -250,9 +251,7 @@ train.raw %>%
     na.omit() %>%
     group_by(title) %>%
     dplyr::summarise(Count=n(), Median_Age=round(median(Age),0)) %>%
-    arrange(-Median_Age) -> MedianAge
-
-kable(MedianAge, format = 'html',align = 'c')
+    arrange(-Median_Age)
 ```
 
 ```{r, message=FALSE, warning=FALSE}
@@ -277,9 +276,10 @@ train.imp$title <- as.factor(train.imp$title)
 
 train.imp %>% 
     group_by(title) %>% 
-    summarise(Median_Age=median(Age,na.rm = T)) %>% 
-    kable(format = 'html',align = 'c')
+    summarise(Median_Age=median(Age,na.rm = T))
+```
 
+```{r}
 ggplot(train.imp,aes(x=title,y=Age))+
     geom_jitter(shape=21,alpha=.6,col='blue')+
     stat_summary(aes(y = Age,group=1), fun.y=median, colour="red", geom="point",group=1)+
@@ -350,7 +350,7 @@ train.imp$Age[train.imp$title=='Master' & train.imp$Age > 20] <- median(train.im
 ## Derived Variables
 
 
-**Child?:** Trying out two engineered variables here - is the passenger a child or not? And is s/he close enough to be considered a adult by chance?
+**Child?:** Trying out two engineered variables here - is the passenger a child or not? Using Age=18 as a threshold. And is s/he close enough to be considered a adult by chance? Those between 16 and 18 could be mistaken for not being children. (My way of incorporating a fudge factor in the decision process of ladies & children first.)
 
 ```{r}
 train.imp$child <- 0
@@ -380,65 +380,84 @@ train.imp$Couple <- ifelse(train.imp$TotalFam==2,1,0)
 train.imp$Family <- ifelse(train.imp$TotalFam>2,1,0)
 ```
 
-**Cabin related:** Extracting the cabin alphabet and number from the cabin variable. Also, some folks have more than 1 cabin. Wonder if that's important. Since lots of unknowns in the Cabin variable, all NA values are replaced by 'U'. Refering to the deck diagram, the topmost decks are A and B, which are closest to the lifeboats. Perhaps that's important too.
+**Cabin related:** Extracting the cabin alphabet and number from the cabin variable. Since the cabin numbers could be ordered from left to right or top to bottom on the boat, perhaps only the 1st digit is significant. Also, some folks have more than 1 cabin. Wonder if that's important. Since lots of unknowns in the `Cabin` variable, all NA values are replaced by 'U'. Refering to the deck diagram, the topmost decks are A and B, which are closest to the lifeboats. Perhaps that's important too. Here, I create a bunch of categorical variables based off the original `Cabin`, and then remove it from the dataset.
 
 ```{r}
 train.imp$CabinMissing <- as.numeric(is.na(train.raw$Cabin))
+
 train.imp$CabinCode <- map_chr(train.raw$Cabin,~str_split(string = .x,pattern = '')[[1]][1])
 train.imp$CabinCode[is.na(train.imp$CabinCode)] <- 'U'
+
 train.imp$CabinNum <- as.numeric(map_chr(train.raw$Cabin,~str_split(string = .x,pattern = '[a-zA-Z]')[[1]][2]))
-train.imp$CabinNum[is.na(train.imp$CabinNum)] <- median(train.imp$CabinNum,na.rm = T)
+train.imp$CabinNum <- map_int(train.imp$CabinNum, ~as.integer(str_split(.x,pattern = '',simplify = T)[1][1]))
+train.imp$CabinNum[is.na(train.imp$CabinNum)] <- 0
+
 train.imp$TopDeck <- ifelse(train.imp$CabinCode %in% c('A','B'),1,0)
 train.imp$MidDeck <- ifelse(train.imp$CabinCode %in% c('C','D'),1,0)
 train.imp$LowerDeck <- ifelse(train.imp$TopDeck==0 & train.imp$MidDeck ==0 ,1,0)
+
 train.imp$NumberofCabins <- map_int(train.raw$Cabin,~str_split(string = .x,pattern = ' ')[[1]] %>% length)
 train.imp$Cabin <- NULL
 ```
 
-Lastly, the `ticket` variable. I'm not sure what to make of it, so I'm keeping it for now, after cleaning it up a bit. A majority (80%) of the rows have unique (one) ticket. 14% rows have a duplicate ticket, perhaps indicating a family. A small number of rows have 3+ duplicates of the tickets.
+**Ticket:** Lastly, the `ticket` variable. I'm not sure what to make of it, so I'm keeping it for now, after cleaning it up a bit. A majority (80%) of the rows have unique (one) ticket. 14% rows have a duplicate ticket, perhaps indicating a family. A small number of rows have 3+ duplicates of the tickets.
 
 ```{r}
-train.imp$Ticket %>% table() %>% as.numeric() %>% histogram
+train.imp$Ticket %>% table() %>% as.numeric() %>% table()
 ```
 
 There seems to be a bit of a pattern here. Tickets starting with 1 are mostly 1st class, those starting with 2 are 2nd class, and 3 - 3rd class. But, I feel it's a very loose association.
 ```{r}
-train.imp %>% group_by(Pclass) %>% dplyr::select(Ticket,Pclass) %>% sample_n(2) %>% 
-    kable()
+train.imp %>% group_by(Pclass) %>% dplyr::select(Ticket,Pclass) %>% sample_n(5)
 ```
 
-What I'm going to do is clean up the columns (remove special characters, spaces etc), then split the `Ticket` column into two: `TicketChar` and `TicketNum`. Perhaps the `TicketChar` has enough explanatory power to be worth this effort.
+What I'm going to do is clean up the columns (remove special characters, spaces etc), then split the `Ticket` column into four: `TicketChar`, `TicketNum`,`TicketNumLength`, `TicketNumStart`.  (Upon running the script a few times, I've decided to get rid of `TicketNum`, but I'm commenting the code for future ref). The `TicketChar` variable as this distribution:
 
 ```{r}
 train.imp %<>% 
     mutate(
         Ticket = str_to_upper(Ticket) %>% 
             str_replace_all(pattern = regex(pattern = '[.\\/]'),replacement = ''),
-        # TicketNum = str_extract(Ticket,pattern = regex('([0-9]){3,}')),
+        TicketNum = str_extract(Ticket,pattern = regex('([0-9]){3,}')),
+        TicketNumStart = map_int(TicketNum,~as.integer(str_split(.x,pattern = '',simplify = T)[1])),
+        TicketNumLen = map_int(TicketNum,~dim(str_split(.x,pattern = '',simplify = T))[2]),
         TicketChar = str_extract(Ticket,pattern = regex('^[a-zA-Z/\\.]+'))
         ) %>% 
     mutate(
-        # TicketNum = ifelse(is.na(TicketNum),0,TicketNum),
-        TicketChar = ifelse(is.na(TicketChar),'U',TicketChar)
+        TicketChar = ifelse(is.na(TicketChar),'U',TicketChar),
+        TicketNumStart = ifelse(is.na(TicketNumStart),0,TicketNumStart),
+        TicketNumLen = ifelse(is.na(TicketNumLen),0,TicketNumLen),
     )
 train.imp$Ticket <- NULL
+train.imp$TicketNum <- NULL
+table(train.imp$TicketChar)
+table(train.imp$TicketNumLen)
+table(train.imp$TicketNumStart)
 ```
 
 ## Winzoring Variables
 
-The `fare` variable has one massive outlier. Winzorising this variable using the 90th percentile value as the cutoff.
+The `fare` variable has one massive outlier. Winzorising this variable using the 95th percentile value as the cutoff.
 
 ```{r}
 ggplot(train.imp,aes(x=Fare,fill=Pclass))+geom_histogram()+facet_grid(Pclass~.)
 quantile(train.imp$Fare[train.imp$Pclass=='P1'],probs = c(.1,.25,.5,.75,.95))
-train.imp$Fare[train.imp$Fare>159] <- 159
+train.imp$Fare[train.imp$Fare>232] <- 232
 ```
+
+***
 
 # Modeling
 
+## Train Control
+
+## Extreme Gradient Boosting (xgboost)
+
+## Gradient Boosting (gbm)
+
+## Random Forest (rf)
+
 ```{r}
-# response <- 'Survived'
-# predictors <- names(train.imp)[names(train.imp)!=response]
 ctrl <- trainControl(method = "repeatedcv",
                      repeats = 1,
                      verboseIter = F,
@@ -583,11 +602,16 @@ test.imp$almostadult <- as.numeric(between(test.imp$Age,16,18))
 test.imp$CabinMissing <- as.numeric(is.na(test.raw$Cabin))
 test.imp$CabinCode <- map_chr(test.raw$Cabin,~str_split(string = .x,pattern = '')[[1]][1])
 test.imp$CabinCode[is.na(test.imp$CabinCode)] <- 'U'
+
 test.imp$CabinNum <- as.numeric(map_chr(test.raw$Cabin,~str_split(string = .x,pattern = '[a-zA-Z]')[[1]][2]))
-test.imp$CabinNum[is.na(test.imp$CabinNum)] <- 40.5
+train.imp$CabinNum <- map_int(test.raw$CabinNum, ~as.integer(str_split(.x,pattern = '',simplify = T)[1][1]))
+test.imp$CabinNum[is.na(test.imp$CabinNum)] <- 0
+
+
 test.imp$TopDeck <- ifelse(test.imp$CabinCode %in% c('A','B'),1,0)
 test.imp$MidDeck <- ifelse(test.imp$CabinCode %in% c('C','D'),1,0)
 test.imp$LowerDeck <- ifelse(test.imp$TopDeck==0 & test.imp$MidDeck ==0 ,1,0)
+
 test.imp$NumberofCabins <- map_int(test.raw$Cabin,~str_split(string = .x,pattern = ' ')[[1]] %>% length)
 test.imp$Cabin <- NULL
 
@@ -605,7 +629,7 @@ train.imp$Family <- ifelse(train.imp$TotalFam>2,1,0)
 
 
 test.imp$Fare[is.na(test.imp$Fare)] <- 14.4542
-test.imp$Fare[test.imp$Fare>159] <- 159
+test.imp$Fare[test.imp$Fare>232] <- 232
 
 test.imp %<>%   
     mutate(
