@@ -471,7 +471,7 @@ ctrl <- trainControl(method = "repeatedcv",
                      summaryFunction = twoClassSummary
                      # sampling = 'smote'
                      )
-
+set.seed(1)
 xgbGrid <- expand.grid(
     nrounds=c(2,3,4,5,6,7),
     max_depth=c(2,3,4,5,6,7),
@@ -524,6 +524,7 @@ xgbGrid <- expand.grid(
 )
 dumV <- dummyVars(formula = Survived~.,data = train.imp)
 Dtrain <- predict(dumV,train.imp)
+set.seed(1)
 xgbsmoteFit <- train(
     x=Dtrain,
     y=train.imp$Survived,
@@ -550,10 +551,13 @@ histogram(~Survived+Dead,train.Probs)
 
 ```{r}
 ctrl <- trainControl(method = "repeatedcv",
-                     repeats = 1,
+                     repeats = 5,
                      verboseIter = T,
                      classProbs = TRUE,
                      summaryFunction = twoClassSummary,
+                                          adaptive = list(min = 5, alpha = 0.05, 
+                                             method = "gls", complete = TRUE),
+                     search = 'random'
                      # sampling = 'smote'
                      )
 gbmGrid <- expand.grid(
@@ -562,10 +566,9 @@ gbmGrid <- expand.grid(
    shrinkage=c(0.1,0.01),
    n.minobsinnode=10
 )
-
 dumV <- dummyVars(formula = Survived~.,data = train.imp)
 Dtrain <- predict(dumV,train.imp)
-
+set.seed(1)
 boostFit <- train(
     x = Dtrain,
     y = boost.train$Survived,
@@ -582,11 +585,14 @@ plot(varImp(boostFit))
 ## Random Forest (rf)
 
 ```{r}
-ctrl <- trainControl(method = "repeatedcv",
+adapt_ctrl <- trainControl(method = "repeatedcv",
                      repeats = 5,
                      verboseIter = T,
                      classProbs = TRUE,
-                     summaryFunction = twoClassSummary
+                     summaryFunction = twoClassSummary,
+                     adaptive = list(min = 5, alpha = 0.05, 
+                                             method = "gls", complete = TRUE),
+                     search = 'random'
                      )
 
 rfGrid <- expand.grid(mtry=c(5,10,15,20,25))
@@ -595,7 +601,7 @@ rfFit.y <- train(
     form = Survived~.,
     data = train.imp,
     method = 'rf',
-    trControl = ctrl,
+    trControl = adapt_ctrl,
     # metric = "Kappa",
     tuneGrid = rfGrid,
     verbose = TRUE,
@@ -625,7 +631,7 @@ ctrl <- trainControl(method = "repeatedcv",
 
 rfGrid <- expand.grid(mtry=c(5,10,15,20,25))
 set.seed(1)
-rfFit.y <- train(
+rfsmoteFit.y <- train(
     form = Survived~.,
     data = train.imp,
     method = 'rf',
@@ -635,21 +641,48 @@ rfFit.y <- train(
     verbose = TRUE,
     ntree = 400
 )
-rfFit.y
-plot(rfFit.y)
-plot(rfFit.y$finalModel)
+rfsmoteFit.y
+plot(rfsmoteFit.y)
+plot(rfsmoteFit.y$finalModel)
 
 
-densityplot(rfFit.y,pch='|')
-predict(rfFit.y,type = 'raw') -> train.rf.Class
-predict(rfFit.y,type = 'prob') -> train.rf.Probs
-histogram(~Survived+Dead,train.rf.Probs)
+densityplot(rfsmoteFit.y,pch='|')
+predict(rfsmoteFit.y,type = 'raw') -> train.rfsmoteFit.Class
+predict(rfsmoteFit.y,type = 'prob') -> train.rfsmoteFit.Probs
+histogram(~Survived+Dead,train.rfsmoteFit.Probs)
 ```
+
+## Elastinet
+
+```{r}
+ctrl <- trainControl(method = "repeatedcv",
+                     repeats = 5,
+                     verboseIter = T,
+                     classProbs = TRUE,
+                     summaryFunction = twoClassSummary,
+                     sampling = 'smote'
+                     )
+glmnetGrid <- expand.grid(.alpha = c(0,.1,.2,.4,.6,.8,1),
+                          .lambda = seq(0.01,0.2,length.out = 40))
+set.seed(1)
+dumV <- dummyVars(formula = Survived~.,data = train.imp)
+Dtrain <- predict(dumV,train.imp)
+glmnetFit <- train(
+    x = Dtrain,
+    y = train.imp$Survived,
+    trControl=ctrl,
+    method='glmnet',
+    tuneGrid=glmnetGrid
+)
+glmnetFit
+plot(glmnetFit)
+```
+
 
 ## Compare models
 
 ```{r}
-re <- resamples(x = list(xgb=xgbFit,xgbsmote=xgbsmoteFit,rf=rfFit.y))
+re <- resamples(x = list(xgb=xgbFit,xgbsmote=xgbsmoteFit,rf=rfFit.y,rfsmote=rfsmoteFit.y,gbm=boostFit))
 summary(re)
 bwplot(re)
 compare_models(xgbFit,rfFit.y,metric = 'ROC')
