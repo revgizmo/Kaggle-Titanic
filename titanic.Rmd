@@ -462,8 +462,18 @@ train.imp %>% glimpse()
 
 # Modeling
 
+I'm experimenting with a few modeling techniques, mainly [xgboost](http://xgboost.readthedocs.io/en/latest/), [gbm](https://cran.r-project.org/web/packages/gbm/index.html), and penalized models using [glmnet](https://cran.r-project.org/web/packages/glmnet/index.html). I've implemented all these models using [caret](http://topepo.github.io/caret/index.html) which I find an absolutely indispensible toolkit to prep, build, tune and explore numerous models using very few lines of code.
+
+For all models, I'm using a 5-repeat 10-fold cross validation technique on the training dataset. Thus, I have not split the training dataset further into test-train sets, given the small number of observations in the dataset. 
+
+Furthermore, given the 80:20 class-imbalance, I'm also trying out [smote](https://www.jair.org/media/953/live-953-2037-jair.pdf) as an class balancing technique for a few models. 
+
+Tuning parameter searches (aka hypertuning) is performed using the `tuneGrid` parameter in the `train()` call. The best model is selected using the AUC of the ROC. Here are the models and a few intermediate results for each model. At the end, I've compared the performance of all the models together.
+
 ## Extreme Gradient Boosting (xgboost)
-```{r}
+
+
+```{r, echo=TRUE}
 ctrl <- trainControl(method = "repeatedcv",
                      repeats = 5,
                      verboseIter = T,
@@ -494,12 +504,10 @@ xgbFit <- train(
 )
 xgbFit
 plot(xgbFit)
-xgb.importance(feature_names = colnames(Dtrain),model = xgbFit$finalModel)
 xgb.importance(feature_names = colnames(Dtrain),model = xgbFit$finalModel) %>%
-xgb.ggplot.importance()
+    xgb.ggplot.importance()
 
 densityplot(xgbFit,pch='|')
-predict(xgbFit,type = 'raw') -> train.Class
 predict(xgbFit,type = 'prob') -> train.Probs
 histogram(~Survived+Dead,train.Probs)
 ```
@@ -548,17 +556,15 @@ histogram(~Survived+Dead,train.Probs)
 
 ## Gradient Boosting (gbm)
 
-
 ```{r}
 ctrl <- trainControl(method = "repeatedcv",
                      repeats = 5,
                      verboseIter = T,
                      classProbs = TRUE,
                      summaryFunction = twoClassSummary,
-                                          adaptive = list(min = 5, alpha = 0.05, 
-                                             method = "gls", complete = TRUE),
+                     adaptive = list(min = 5, alpha = 0.05, 
+                                     method = "gls", complete = TRUE),
                      search = 'random'
-                     # sampling = 'smote'
                      )
 gbmGrid <- expand.grid(
    n.trees=c(500,700,900,1100),
@@ -580,6 +586,9 @@ boostFit
 plot(boostFit)
 xyplot(oobag.improve~1:1100,data=boostFit$finalModel,alpha=.5,xlab = 'n.trees')
 plot(varImp(boostFit))
+densityplot(boostFit,pch='|')
+predict(boostFit,type = 'prob') -> train.Probs
+histogram(~Survived+Dead,train.Probs)
 ```
 
 ## Random Forest (rf)
@@ -602,7 +611,6 @@ rfFit.y <- train(
     data = train.imp,
     method = 'rf',
     trControl = adapt_ctrl,
-    # metric = "Kappa",
     tuneGrid = rfGrid,
     verbose = TRUE,
     ntree = 400
@@ -610,10 +618,7 @@ rfFit.y <- train(
 rfFit.y
 plot(rfFit.y)
 plot(rfFit.y$finalModel)
-
-
 densityplot(rfFit.y,pch='|')
-predict(rfFit.y,type = 'raw') -> train.rf.Class
 predict(rfFit.y,type = 'prob') -> train.rf.Probs
 histogram(~Survived+Dead,train.rf.Probs)
 ```
@@ -644,10 +649,7 @@ rfsmoteFit.y <- train(
 rfsmoteFit.y
 plot(rfsmoteFit.y)
 plot(rfsmoteFit.y$finalModel)
-
-
 densityplot(rfsmoteFit.y,pch='|')
-predict(rfsmoteFit.y,type = 'raw') -> train.rfsmoteFit.Class
 predict(rfsmoteFit.y,type = 'prob') -> train.rfsmoteFit.Probs
 histogram(~Survived+Dead,train.rfsmoteFit.Probs)
 ```
@@ -675,18 +677,61 @@ glmnetFit <- train(
     tuneGrid=glmnetGrid
 )
 glmnetFit
-plot(glmnetFit)
+plot(glmnetFit,plotType='level')
+plot(varImp(glmnetFit))
+densityplot(glmnetFit,pch='|')
+predict(glmnetFit,type = 'prob') -> train.glmnet.Probs
+histogram(~Survived+Dead,train.glmnet.Probs)
+
+```
+
+# Compare models
+
+```{r}
+re <-
+    resamples(
+    x = list(
+    xgb = xgbFit,
+    xgbsmote = xgbsmoteFit,
+    rf = rfFit.y,
+    rfsmote = rfsmoteFit.y,
+    gbm = boostFit,
+    elastinet=glmnetFit
+    )
+    )
+summary(re)
+bwplot(re)
+summary(diff(re))
 ```
 
 
-## Compare models
+```{r}
+simulatedTrain <- data.frame(Class = train.imp$Survived)
+simulatedTrain$rf = predict(rfFit.y,type = 'prob')[[1]]
+simulatedTrain$rfsmote = predict(rfsmoteFit.y,type = 'prob')[[1]]
+simulatedTrain$xgb = predict(xgbFit,type = 'prob')[[1]]
+simulatedTrain$xgbsmote = predict(xgbsmoteFit,type = 'prob')[[1]]
+simulatedTrain$boost = predict(boostFit,type = 'prob')[[1]]
+```
 
 ```{r}
-re <- resamples(x = list(xgb=xgbFit,xgbsmote=xgbsmoteFit,rf=rfFit.y,rfsmote=rfsmoteFit.y,gbm=boostFit))
-summary(re)
-bwplot(re)
-compare_models(xgbFit,rfFit.y,metric = 'ROC')
-summary(diff(re))
+calCurve <- calibration(x = Class~rf+rfsmote+xgb+xgbsmote+boost,data = simulatedTrain)
+xyplot(calCurve,auto.key=list(columns=3))
+```
+
+# Calibrating probabilities
+
+```{r}
+sigmoidCal <- glm(relevel(Class,ref='Dead')~boost,simulatedTrain,family = 'binomial')
+coef(summary(sigmoidCal))
+simulatedTrain$boostSig = predict(sigmoidCal,type = 'response')
+sigmoidCal <- glm(relevel(Class,ref='Dead')~xgbsmote,simulatedTrain,family = 'binomial')
+coef(summary(sigmoidCal))
+simulatedTrain$xgbsmoteSig = predict(sigmoidCal,type = 'response')
+calibration(x = Class~boost+boostSig,data = simulatedTrain) %>%
+    xyplot(auto.key=list(columns=2))
+calibration(x = Class~xgbsmote+xgbsmoteSig,data = simulatedTrain) %>%
+    xyplot(auto.key=list(columns=2))
 ```
 
 
