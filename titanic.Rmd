@@ -3,7 +3,7 @@ title: "Kaggle Titanic Competition - Data Exploration & Model Building"
 author: 'Rahul Sangole'
 date: Aug 31, 2017
 output:
-  html_notebook: 
+  html_notebook:
     code_folding: hide
     collapsed: no
     fig_height: 3
@@ -236,7 +236,7 @@ Starting with the easier one first:
 ```{r}
 summary(train.raw$Embarked)
 train.imp <- train.raw
-train.imp$Embarked[is.na(train.imp$Embarked)]='S'
+train.imp$Embarked[is.na(train.imp$Embarked)] <- 'S'
 ```
 
 **Names, Titles & Age**:
@@ -274,8 +274,8 @@ train.imp$title[train.imp$title %in% c('Mrs','Mme')] <- 'Mrs'
 train.imp$title[train.imp$title %in% c('Ms','Mlle')] <- 'Miss'
 train.imp$title <- as.factor(train.imp$title)
 
-train.imp %>% 
-    group_by(title) %>% 
+train.imp %>%
+    group_by(title) %>%
     summarise(Median_Age=median(Age,na.rm = T))
 ```
 
@@ -291,8 +291,8 @@ ggplot(train.imp,aes(x=title,y=Age))+
 Now for the missing Age values. I'm trying out two strategies to impute age, just for kicks. First, a regression tree using the `rpart` method. 5-repeat 10-fold cross validation across a tuning grid of 20 values of `maxdepth`. RMSE stablizes at a depth of 14, with a value of 12.2.
 
 ```{r}
-age.predictors <- train.imp %>% 
-    dplyr::select(-Survived,-Cabin,-Ticket,-Name) %>% 
+age.predictors <- train.imp %>%
+    dplyr::select(-Survived,-Cabin,-Ticket,-Name) %>%
     filter(complete.cases(.))
 set.seed(1234)
 ctrl <- trainControl(method = "boot",
@@ -334,9 +334,9 @@ I'm going to use the randomForest model. Using the `predict.train()` to predict 
 ```{r}
 missing.age <- train.imp %>% filter(is.na(Age))
 age.predicted <- predict(rfFit, newdata = missing.age)
-train.imp %>% 
+train.imp %>%
     mutate(AgeMissing = is.na(Age),
-           Age = ifelse(AgeMissing,age.predicted,Age)) %>% 
+           Age = ifelse(AgeMissing,age.predicted,Age)) %>%
     ggplot(aes(x=title,y=Age))+
     stat_summary(aes(y = Age,group=1), fun.y=median, colour="red", geom="point",group=1)+
     geom_jitter(aes(y=Age,col=AgeMissing),shape=2)+
@@ -414,15 +414,19 @@ train.imp %>% group_by(Pclass) %>% dplyr::select(Ticket,Pclass) %>% sample_n(5)
 What I'm going to do is clean up the columns (remove special characters, spaces etc), then split the `Ticket` column into four: `TicketChar`, `TicketNum`,`TicketNumLength`, `TicketNumStart`.  (Upon running the script a few times, I've decided to get rid of `TicketNum`, but I'm commenting the code for future ref). The `TicketChar` variable as this distribution:
 
 ```{r}
-train.imp %<>% 
+train.imp %<>%
     mutate(
-        Ticket = str_to_upper(Ticket) %>% 
+        Ticket = str_to_upper(Ticket) %>%
             str_replace_all(pattern = regex(pattern = '[.\\/]'),replacement = ''),
         TicketNum = str_extract(Ticket,pattern = regex('([0-9]){3,}')),
         TicketNumStart = map_int(TicketNum,~as.integer(str_split(.x,pattern = '',simplify = T)[1])),
         TicketNumLen = map_int(TicketNum,~dim(str_split(.x,pattern = '',simplify = T))[2]),
-        TicketChar = str_extract(Ticket,pattern = regex('^[a-zA-Z/\\.]+'))
-        ) %>% 
+        TicketChar = str_extract(Ticket,pattern = regex('^[a-zA-Z/\\.]+')) 
+        ) %>%
+     mutate(
+         TicketChar = map_chr(.x=TicketChar,
+                              .f=~str_split(string=.x, pattern = '',simplify = T)[1])
+         ) %>%     
     mutate(
         TicketChar = ifelse(is.na(TicketChar),'U',TicketChar),
         TicketNumStart = ifelse(is.na(TicketNumStart),0,TicketNumStart),
@@ -445,32 +449,34 @@ quantile(train.imp$Fare[train.imp$Pclass=='P1'],probs = c(.1,.25,.5,.75,.95))
 train.imp$Fare[train.imp$Fare>232] <- 232
 ```
 
+## Final Data Review
+
+The dataset is now prepared for modeling. Here's a quick review of the data so far. 29 variables in total.
+
+```{r}
+train.imp %>% glimpse()
+```
+
+
 ***
 
 # Modeling
 
-## Train Control
-
 ## Extreme Gradient Boosting (xgboost)
-
-## Gradient Boosting (gbm)
-
-## Random Forest (rf)
-
 ```{r}
 ctrl <- trainControl(method = "repeatedcv",
-                     repeats = 1,
-                     verboseIter = F,
+                     repeats = 5,
+                     verboseIter = T,
                      classProbs = TRUE,
-                     summaryFunction = twoClassSummary,
-                     sampling = 'smote'
+                     summaryFunction = twoClassSummary
+                     # sampling = 'smote'
                      )
 
 xgbGrid <- expand.grid(
-    nrounds=c(3,4,5),
-    max_depth=c(4,5,6),
-    eta=c(0.35,0.4,0.45),
-    gamma=c(0.8),
+    nrounds=c(2,3,4,5,6,7),
+    max_depth=c(2,3,4,5,6,7),
+    eta=c(0.3,0.5),
+    gamma=1,
     colsample_bytree=1,
     min_child_weight=1,
     subsample=1
@@ -498,39 +504,48 @@ predict(xgbFit,type = 'prob') -> train.Probs
 histogram(~Survived+Dead,train.Probs)
 ```
 
-
-
+## Extreme Gradient Boosting (xgboost) - SMOTE Sampling
 ```{r}
-# response <- 'Survived'
-# predictors <- names(train.imp)[names(train.imp)!=response]
 ctrl <- trainControl(method = "repeatedcv",
-                     repeats = 1,
+                     repeats = 5,
                      verboseIter = T,
                      classProbs = TRUE,
                      summaryFunction = twoClassSummary,
                      sampling = 'smote'
                      )
-
-rfGrid <- data.frame(mtry=seq(8,12))
-
-rfFit.y <- train(
-    form = Survived~.,
-    data = train.imp,
-    method = 'rf',
+xgbGrid <- expand.grid(
+    nrounds=c(2,3,4,5,6,7),
+    max_depth=c(2,3,4,5,6,7),
+    eta=c(0.3,0.5),
+    gamma=1,
+    colsample_bytree=1,
+    min_child_weight=1,
+    subsample=1
+)
+dumV <- dummyVars(formula = Survived~.,data = train.imp)
+Dtrain <- predict(dumV,train.imp)
+xgbsmoteFit <- train(
+    x=Dtrain,
+    y=train.imp$Survived,
+    method = 'xgbTree',
     trControl = ctrl,
     # metric = "Kappa",
-    tuneGrid = rfGrid,
+    tuneGrid = xgbGrid,
     verbose = TRUE
 )
-rfFit.y
-plot(rfFit.y)
+xgbsmoteFit
+plot(xgbsmoteFit)
+xgb.importance(feature_names = colnames(Dtrain),model = xgbsmoteFit$finalModel)
+xgb.importance(feature_names = colnames(Dtrain),model = xgbsmoteFit$finalModel) %>%
+xgb.ggplot.importance()
 
-
-densityplot(rfFit.y,pch='|')
-predict(rfFit.y,type = 'raw') -> train.rf.Class
-predict(rfFit.y,type = 'prob') -> train.rf.Probs
-histogram(~Survived+Dead,train.rf.Probs)
+densityplot(xgbsmoteFit,pch='|')
+predict(xgbsmoteFit,type = 'raw') -> train.Class
+predict(xgbsmoteFit,type = 'prob') -> train.Probs
+histogram(~Survived+Dead,train.Probs)
 ```
+
+## Gradient Boosting (gbm)
 
 
 ```{r}
@@ -564,11 +579,81 @@ xyplot(oobag.improve~1:1100,data=boostFit$finalModel,alpha=.5,xlab = 'n.trees')
 plot(varImp(boostFit))
 ```
 
+## Random Forest (rf)
+
+```{r}
+ctrl <- trainControl(method = "repeatedcv",
+                     repeats = 5,
+                     verboseIter = T,
+                     classProbs = TRUE,
+                     summaryFunction = twoClassSummary
+                     )
+
+rfGrid <- expand.grid(mtry=c(5,10,15,20,25))
+set.seed(1)
+rfFit.y <- train(
+    form = Survived~.,
+    data = train.imp,
+    method = 'rf',
+    trControl = ctrl,
+    # metric = "Kappa",
+    tuneGrid = rfGrid,
+    verbose = TRUE,
+    ntree = 400
+)
+rfFit.y
+plot(rfFit.y)
+plot(rfFit.y$finalModel)
+
+
+densityplot(rfFit.y,pch='|')
+predict(rfFit.y,type = 'raw') -> train.rf.Class
+predict(rfFit.y,type = 'prob') -> train.rf.Probs
+histogram(~Survived+Dead,train.rf.Probs)
+```
+
+## Random Forest (rf) - SMOTE
+
+```{r}
+ctrl <- trainControl(method = "repeatedcv",
+                     repeats = 5,
+                     verboseIter = T,
+                     classProbs = TRUE,
+                     summaryFunction = twoClassSummary,
+                     sampling = 'smote'
+                     )
+
+rfGrid <- expand.grid(mtry=c(5,10,15,20,25))
+set.seed(1)
+rfFit.y <- train(
+    form = Survived~.,
+    data = train.imp,
+    method = 'rf',
+    trControl = ctrl,
+    # metric = "Kappa",
+    tuneGrid = rfGrid,
+    verbose = TRUE,
+    ntree = 400
+)
+rfFit.y
+plot(rfFit.y)
+plot(rfFit.y$finalModel)
+
+
+densityplot(rfFit.y,pch='|')
+predict(rfFit.y,type = 'raw') -> train.rf.Class
+predict(rfFit.y,type = 'prob') -> train.rf.Probs
+histogram(~Survived+Dead,train.rf.Probs)
+```
+
 ## Compare models
 
 ```{r}
-re <- resamples(x = list(xgb=xgbFit,rf=rfFit.y))
+re <- resamples(x = list(xgb=xgbFit,xgbsmote=xgbsmoteFit,rf=rfFit.y))
 summary(re)
+bwplot(re)
+compare_models(xgbFit,rfFit.y,metric = 'ROC')
+summary(diff(re))
 ```
 
 
@@ -577,8 +662,10 @@ summary(re)
 ```{r}
 test.imp <- test.raw
 
+#Embarked
 test.imp$Embarked[is.na(test.imp$Embarked)]='S'
 
+#Title
 test.raw$title <- str_extract(pattern = '[a-zA-Z]+(?=\\.)',string = test.raw$Name)
 #test.raw$title <- as.factor(test.raw$title)
 test.imp$title <- as.character(test.raw$title)
@@ -586,27 +673,39 @@ test.imp$title[test.imp$title %in% c('Capt','Col','Major')] <- 'Officer'
 test.imp$title[test.imp$title %in% c('Don','Dr','Rev','Sir','Jonkheer','Countess','Lady','Dona')] <- 'Royalty'
 test.imp$title[test.imp$title %in% c('Mrs','Mme')] <- 'Mrs'
 test.imp$title[test.imp$title %in% c('Ms','Mlle')] <- 'Miss'
-
 test.imp$title <- as.factor(test.imp$title)
 
-missing.age <- test.imp %>% filter(is.na(Age)) %>% dplyr::select(-Cabin,-Ticket)
+#Missing age
+missing.age <- test.imp %>% filter(is.na(Age))
 age.predicted <- predict(rfFit, newdata = missing.age)
-age.predicted[missing.age$title=='Master'] <- 4
 test.imp$Age[is.na(test.imp$Age)] <- age.predicted
+test.imp$Age[test.imp$title=='Master' & test.imp$Age > 20] <- 4
 
+#Child
 test.imp$child <- 0
 test.imp$child[test.imp$Age<18] <- 1
 test.imp$almostadult <- as.numeric(between(test.imp$Age,16,18))
 
+#Young/old
+test.imp$Young <- ifelse(test.imp$Age<10,1,0)
+test.imp$Seniors <- ifelse(test.imp$Age>60,1,0)
 
+#Family Related
+test.imp$TotalFam <- test.imp$SibSp + test.imp$Parch + 1
+test.imp$Name <- NULL
+test.imp$LargeParCh <- as.numeric(test.imp$Parch>=3)
+test.imp$LargeSibSp <- as.numeric(test.imp$SibSp>=3)
+test.imp$Single <- ifelse(test.imp$TotalFam==1,1,0)
+test.imp$Couple <- ifelse(test.imp$TotalFam==2,1,0)
+test.imp$Family <- ifelse(test.imp$TotalFam>2,1,0)
+
+#Cabin & Deck
 test.imp$CabinMissing <- as.numeric(is.na(test.raw$Cabin))
 test.imp$CabinCode <- map_chr(test.raw$Cabin,~str_split(string = .x,pattern = '')[[1]][1])
 test.imp$CabinCode[is.na(test.imp$CabinCode)] <- 'U'
-
 test.imp$CabinNum <- as.numeric(map_chr(test.raw$Cabin,~str_split(string = .x,pattern = '[a-zA-Z]')[[1]][2]))
-train.imp$CabinNum <- map_int(test.raw$CabinNum, ~as.integer(str_split(.x,pattern = '',simplify = T)[1][1]))
+test.imp$CabinNum <- map_int(test.imp$CabinNum, ~as.integer(str_split(.x,pattern = '',simplify = T)[1][1]))
 test.imp$CabinNum[is.na(test.imp$CabinNum)] <- 0
-
 
 test.imp$TopDeck <- ifelse(test.imp$CabinCode %in% c('A','B'),1,0)
 test.imp$MidDeck <- ifelse(test.imp$CabinCode %in% c('C','D'),1,0)
@@ -616,32 +715,28 @@ test.imp$NumberofCabins <- map_int(test.raw$Cabin,~str_split(string = .x,pattern
 test.imp$Cabin <- NULL
 
 
-test.imp$TotalFam <- test.imp$SibSp + test.imp$Parch + 1
-# test.imp$LastName <- test.imp$Name %>% str_extract(pattern = '[a-zA-Z]+(?=,)')
-# test.imp$FamSize <- paste0(test.imp$TotalFam,test.imp$LastName)
-# test.imp$LastName <- NULL
-test.imp$Name <- NULL
-test.imp$LargeParCh <- as.numeric(test.imp$Parch>=3)
-test.imp$LargeSibSp <- as.numeric(test.imp$SibSp>=3)
-train.imp$Single <- ifelse(train.imp$TotalFam==1,1,0)
-train.imp$Couple <- ifelse(train.imp$TotalFam==2,1,0)
-train.imp$Family <- ifelse(train.imp$TotalFam>2,1,0)
+# Ticket
+test.imp %<>%
+    mutate(
+      Ticket = str_to_upper(Ticket) %>%
+          str_replace_all(pattern = regex(pattern = '[.\\/]'),replacement = ''),
+      TicketNum = str_extract(Ticket,pattern = regex('([0-9]){3,}')),
+      TicketNumStart = map_int(TicketNum,~as.integer(str_split(.x,pattern = '',simplify = T)[1])),
+      TicketNumLen = map_int(TicketNum,~dim(str_split(.x,pattern = '',simplify = T))[2]),
+      TicketChar = str_extract(Ticket,pattern = regex('^[a-zA-Z/\\.]+'))
+      ) %>%
+    mutate(
+      TicketChar = ifelse(is.na(TicketChar),'U',TicketChar),
+      TicketNumStart = ifelse(is.na(TicketNumStart),0,TicketNumStart),
+      TicketNumLen = ifelse(is.na(TicketNumLen),0,TicketNumLen),
+    )
+test.imp$Ticket <- NULL
+test.imp$TicketNum <- NULL
 
-
+#Fare
 test.imp$Fare[is.na(test.imp$Fare)] <- 14.4542
 test.imp$Fare[test.imp$Fare>232] <- 232
 
-test.imp %<>%   
-    mutate(
-        Ticket = str_to_upper(Ticket) %>% 
-            str_replace_all(pattern = regex(pattern = '[.\\/]'),replacement = ''),
-        # TicketNum = str_extract(Ticket,pattern = regex('([0-9]){3,}')),
-        TicketChar = str_extract(Ticket,pattern = regex('^[a-zA-Z/\\.]+'))) %>% 
-    mutate(
-        # TicketNum = ifelse(is.na(TicketNum),0,TicketNum),
-        TicketChar = ifelse(is.na(TicketChar),'U',TicketChar)
-    )
-test.imp$Ticket <- NULL
 ```
 
 
@@ -655,6 +750,8 @@ Dtest <- predict(dumV,test.imp)
 
 xgbPred <- predict(object = xgbFit,
                    newdata = Dtest)
+rfPred <- predict(object = rfFit.y,
+                   newdata = test.imp)
 ```
 
 
