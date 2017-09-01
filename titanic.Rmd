@@ -834,20 +834,20 @@ test.imp$Fare[test.imp$Fare>232] <- 232
 dumV <- dummyVars(formula = ~.,data = test.imp)
 Dtest <- predict(dumV,test.imp)
 
-boostPred <- predict(object = boostFit, newdata = test.imp)
+boostPred <- ifelse(predict(boostFit$finalModel,newdata = Dtest,n.trees = boostFit$bestTune$n.trees,type = 'response')>0.5,1,2)
 xgbPred <- predict(object = xgbFit, newdata = Dtest)
 xgbsmotePred <- predict(object = xgbsmoteFit, newdata = Dtest)
 rfPred <- predict(object = rfFit.y, newdata = test.imp)
 rfsmotePred <- predict(object = rfsmoteFit.y, newdata = test.imp)
 
-boostProb <- data.frame(boost=predict(object = boostFit, newdata = test.imp,type = 'prob')[[1]])
+boostProb <- data.frame(boost=predict(boostFit$finalModel,newdata = Dtest,n.trees = boostFit$bestTune$n.trees,type = 'response'))
 boostSigPred <- predict(object = boostsigmoidCal,newdata = boostProb,type = 'response')
-boostSigPred <- ifelse(boostSigPred>=0.5,'Survived','Dead')
+boostSigPred <- ifelse(boostSigPred>=0.5,1,2)
 
 xgbsmotesigmoidCal
-xgbProb <- data.frame(xgbsmote=predict(object = xgbsmoteFit, newdata = test.imp,type = 'prob')[[1]])
+xgbProb <- data.frame(xgbsmote=predict(object = xgbsmoteFit, newdata = Dtest,type = 'prob')[[1]])
 xgbsmoteSigPred <- predict(object = xgbsmotesigmoidCal,newdata = xgbProb,type = 'response')
-xgbsmoteSigPred <- ifelse(xgbsmoteSigPred>0.5,'Survived','Dead')
+xgbsmoteSigPred <- ifelse(xgbsmoteSigPred>0.5,1,2)
 ```
 
 
@@ -866,7 +866,7 @@ for(m in ls(pattern = 'Pred')) {
     write.csv(
     x = data.frame(
     PassengerId = PID,
-    Survived = as.numeric(xgbPred) * -1 + 2
+    Survived = as.numeric(eval(parse(text = m))) * -1 + 2
     ),
     file = paste0(m,'.csv'),
     row.names = F
