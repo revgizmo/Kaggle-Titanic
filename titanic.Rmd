@@ -227,7 +227,6 @@ ggplot(train.raw,aes(y=SibSp,x=Parch))+
 ***
 
 # Data Preparation
-
 ## Missing Values Imputation
 Starting with the easier one first:
 
@@ -281,10 +280,10 @@ train.imp %>%
 
 ```{r}
 ggplot(train.imp,aes(x=title,y=Age))+
-    geom_jitter(shape=21,alpha=.6,col='blue')+
+    geom_jitter(color='blue',shape=21,alpha=.7)+
     stat_summary(aes(y = Age,group=1), fun.y=median, colour="red", geom="point",group=1)+
     theme_bw()+
-    theme(axis.text.x = element_text(angle = 45, hjust = 1),legend.position="none")+
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))+
     labs(caption='Red points are median values')
 ```
 
@@ -365,19 +364,16 @@ train.imp$Seniors <- ifelse(train.imp$Age>60,1,0)
 ```
 
 
-**Family related:** Let's also create some variables that talk about family sizes. What's the total family size -- continous variable `TotalFam`. Is the person single, part of a couple or a family? Three categorical variables for these.
+**Family related:** Let's also create some variables that talk about family sizes. What's the total family size -- continous variable `TotalFam`. Is the person single, part of a couple or a large family? Three categorical variables for these.
 
 ```{r}
 train.imp$TotalFam <- train.imp$SibSp + train.imp$Parch + 1
-# train.imp$LastName <- train.imp$Name %>% str_extract(pattern = '[a-zA-Z]+(?=,)')
-# train.imp$FamSize <- paste0(train.imp$TotalFam,train.imp$LastName)
-# train.imp$LastName <- NULL
-train.imp$Name <- NULL
 train.imp$LargeParCh <- as.numeric(train.imp$Parch>=3)
 train.imp$LargeSibSp <- as.numeric(train.imp$SibSp>=3)
 train.imp$Single <- ifelse(train.imp$TotalFam==1,1,0)
 train.imp$Couple <- ifelse(train.imp$TotalFam==2,1,0)
-train.imp$Family <- ifelse(train.imp$TotalFam>2,1,0)
+train.imp$Family <- ifelse(train.imp$TotalFam>4,1,0)
+train.imp$Name <- NULL
 ```
 
 **Cabin related:** Extracting the cabin alphabet and number from the cabin variable. Since the cabin numbers could be ordered from left to right or top to bottom on the boat, perhaps only the 1st digit is significant. Also, some folks have more than 1 cabin. Wonder if that's important. Since lots of unknowns in the `Cabin` variable, all NA values are replaced by 'U'. Refering to the deck diagram, the topmost decks are A and B, which are closest to the lifeboats. Perhaps that's important too. Here, I create a bunch of categorical variables based off the original `Cabin`, and then remove it from the dataset.
@@ -434,9 +430,9 @@ train.imp %<>%
     )
 train.imp$Ticket <- NULL
 train.imp$TicketNum <- NULL
-table(train.imp$TicketChar)
-table(train.imp$TicketNumLen)
-table(train.imp$TicketNumStart)
+table(train.imp$TicketChar,dnn ='TicketChar')
+table(train.imp$TicketNumLen,dnn='TicketNumLen')
+table(train.imp$TicketNumStart,dnn='TicketNumStart')
 ```
 
 ## Winzoring Variables
@@ -444,9 +440,9 @@ table(train.imp$TicketNumStart)
 The `fare` variable has one massive outlier. Winzorising this variable using the 95th percentile value as the cutoff.
 
 ```{r}
-ggplot(train.imp,aes(x=Fare,fill=Pclass))+geom_histogram()+facet_grid(Pclass~.)
-quantile(train.imp$Fare[train.imp$Pclass=='P1'],probs = c(.1,.25,.5,.75,.95))
-train.imp$Fare[train.imp$Fare>232] <- 232
+# ggplot(train.imp,aes(x=Fare,fill=Pclass))+geom_histogram()+facet_grid(Pclass~.)
+# quantile(train.imp$Fare[train.imp$Pclass=='P1'],probs = c(.1,.25,.5,.75,.95))
+# train.imp$Fare[train.imp$Fare>232] <- 232
 ```
 
 ## Final Data Review
@@ -592,6 +588,90 @@ histogram(~Survived+Dead,train.Probs)
 ```
 
 ## Random Forest (rf)
+```{r}
+
+customRF <-
+    list(type = "Classification",
+    library = "randomForest",
+    loop = NULL)
+
+customRF$parameters <- data.frame(
+    parameter = c("mtry", "ntree", 'nodesize', 'replace'),
+    class = c("numeric", 'numeric', 'numeric', 'logical'),
+    label = c("mtry", "ntree", 'nodesize', 'replace')
+    )
+customRF$grid <- function(x, y, len = NULL, search = "grid") {}
+
+customRF$fit <-
+    function(x,
+    y,
+    wts,
+    param,
+    lev,
+    last,
+    weights,
+    classProbs,
+    ...) {
+    randomForest(
+    x,
+    y,
+    mtry = param$mtry,
+    ntree = param$ntree,
+    replace = param$replace,
+    # classwt = param$classwt,
+    nodesize = param$nodesize
+    )
+    }
+customRF$predict <-
+    function(modelFit,
+    newdata,
+    preProc = NULL,
+    submodels = NULL)
+    predict(modelFit, newdata)
+
+customRF$prob <-
+    function(modelFit,
+    newdata,
+    preProc = NULL,
+    submodels = NULL)
+        predict(modelFit, newdata, type = "prob")
+customRF$sort <- function(x)
+    x[order(x[, 1]), ]
+
+customRF$levels <- function(x)
+    x$classes
+
+customRF
+    
+    
+    ctrl <- trainControl(
+    method = "repeatedcv",
+    repeats = 5,
+    verboseIter = T,
+    classProbs = TRUE,
+    summaryFunction = twoClassSummary,
+    # sampling = 'smote'
+    )
+    
+    crfGrid <- expand.grid(
+    mtry = c(10, 15, 20, 29),
+    ntree = c(100, 300, 500),
+    nodesize = c(1, 5, 10),
+    replace = c(T, F)
+    # classwt = c(0.6, 0.8)
+    )
+    set.seed(1)
+    crfFit <- train(
+    form = Survived ~ .,
+    data = train.imp,
+    method = customRF,
+    trControl = adapt_ctrl,
+    # metric = "Kappa",
+    tuneGrid = crfGrid,
+    verbose = TRUE
+    )
+    
+```
 
 ```{r}
 adapt_ctrl <- trainControl(method = "repeatedcv",
@@ -696,7 +776,8 @@ re <-
     rf = rfFit.y,
     rfsmote = rfsmoteFit.y,
     gbm = boostFit,
-    elastinet=glmnetFit
+    elastinet=glmnetFit,
+    crf = crfFit
     )
     )
 summary(re)
@@ -777,7 +858,7 @@ test.imp$LargeParCh <- as.numeric(test.imp$Parch>=3)
 test.imp$LargeSibSp <- as.numeric(test.imp$SibSp>=3)
 test.imp$Single <- ifelse(test.imp$TotalFam==1,1,0)
 test.imp$Couple <- ifelse(test.imp$TotalFam==2,1,0)
-test.imp$Family <- ifelse(test.imp$TotalFam>2,1,0)
+test.imp$Family <- ifelse(test.imp$TotalFam>4,1,0)
 
 #Cabin & Deck
 test.imp$CabinMissing <- as.numeric(is.na(test.raw$Cabin))
@@ -824,10 +905,9 @@ test.imp$TicketNum <- NULL
 
 #Fare
 test.imp$Fare[is.na(test.imp$Fare)] <- 14.4542
-test.imp$Fare[test.imp$Fare>232] <- 232
+# test.imp$Fare[test.imp$Fare>232] <- 232
 
 ```
-
 
 
 ```{r}
@@ -872,7 +952,31 @@ for(m in ls(pattern = 'Pred')) {
     row.names = F
     )
 }
-
 ```
 
 # Conclusions
+
+
+
+
+```{r}
+d <- data.frame(boostPred,xgbPred,rfPred,xgbsmotePred,rfsmotePred,boostSigPred)
+map_df(d,~as.numeric(.x)*-1+2) -> d
+d %>% mutate(Avg=rowMeans(.)) -> d
+d %>% rownames_to_column('rowid') %>% reshape2::melt(id.vars='rowid') %>% 
+    ggplot(aes(x=rowid, y=value))+
+    geom_point(aes(col=variable))
+```
+
+
+```{r}
+train.imp %>% 
+    bind_cols(simulatedTrain) %>%
+    mutate(Young=as.factor(Young)) %>% 
+    group_by(Young) %>%
+    summarize(
+        A=mean(Age,na.rm = T),
+        S=sd(Age)
+    )
+```
+
