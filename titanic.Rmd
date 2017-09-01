@@ -787,6 +787,11 @@ test.imp$CabinNum <- as.numeric(map_chr(test.raw$Cabin,~str_split(string = .x,pa
 test.imp$CabinNum <- map_int(test.imp$CabinNum, ~as.integer(str_split(.x,pattern = '',simplify = T)[1][1]))
 test.imp$CabinNum[is.na(test.imp$CabinNum)] <- 0
 
+test.imp$CabinCode <- factor(
+    x = test.imp$CabinCode,
+    levels = unique(train.imp$CabinCode)
+)
+
 test.imp$TopDeck <- ifelse(test.imp$CabinCode %in% c('A','B'),1,0)
 test.imp$MidDeck <- ifelse(test.imp$CabinCode %in% c('C','D'),1,0)
 test.imp$LowerDeck <- ifelse(test.imp$TopDeck==0 & test.imp$MidDeck ==0 ,1,0)
@@ -838,6 +843,13 @@ rfsmotePred <- predict(object = rfsmoteFit.y, newdata = test.imp)
 boostProb <- data.frame(boost=predict(object = boostFit, newdata = test.imp,type = 'prob')[[1]])
 boostSigPred <- predict(object = boostsigmoidCal,newdata = boostProb,type = 'response')
 boostSigPred <- ifelse(boostSigPred>=0.5,'Survived','Dead')
+
+xgbsmotesigmoidCal
+xgbProb <- data.frame(xgbsmote=predict(object = xgbsmoteFit, newdata = test.imp,type = 'prob')[[1]])
+xgbsmoteSigPred <- predict(object = xgbsmotesigmoidCal,newdata = xgbProb,type = 'response')
+xgbsmoteSigPred <- ifelse(xgbsmoteSigPred>0.5,'Survived','Dead')
+
+
 ```
 
 
