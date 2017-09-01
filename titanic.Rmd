@@ -834,7 +834,7 @@ test.imp$Fare[test.imp$Fare>232] <- 232
 dumV <- dummyVars(formula = ~.,data = test.imp)
 Dtest <- predict(dumV,test.imp)
 
-boostPred <- predict(object = boostFit, newdata = Dtest)
+boostPred <- predict(object = boostFit, newdata = test.imp)
 xgbPred <- predict(object = xgbFit, newdata = Dtest)
 xgbsmotePred <- predict(object = xgbsmoteFit, newdata = Dtest)
 rfPred <- predict(object = rfFit.y, newdata = test.imp)
@@ -848,8 +848,6 @@ xgbsmotesigmoidCal
 xgbProb <- data.frame(xgbsmote=predict(object = xgbsmoteFit, newdata = test.imp,type = 'prob')[[1]])
 xgbsmoteSigPred <- predict(object = xgbsmotesigmoidCal,newdata = xgbProb,type = 'response')
 xgbsmoteSigPred <- ifelse(xgbsmoteSigPred>0.5,'Survived','Dead')
-
-
 ```
 
 
@@ -861,14 +859,19 @@ PID <-
     test.column.types,
     missing.types)
 PID <- PID$PassengerId
-output <- write.csv(
+```
+
+```{r}
+for(m in ls(pattern = 'Pred')) {
+    write.csv(
     x = data.frame(
-        PassengerId = PID,
-        Survived = as.numeric(xgbPred)*-1+2
+    PassengerId = PID,
+    Survived = as.numeric(xgbPred) * -1 + 2
     ),
-    file = 'aug30.csv',
+    file = paste0(m,'.csv'),
     row.names = F
-)
+    )
+}
 
 ```
 
