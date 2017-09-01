@@ -722,12 +722,14 @@ xyplot(calCurve,auto.key=list(columns=3))
 # Calibrating probabilities
 
 ```{r}
-sigmoidCal <- glm(relevel(Class,ref='Dead')~boost,simulatedTrain,family = 'binomial')
-coef(summary(sigmoidCal))
-simulatedTrain$boostSig = predict(sigmoidCal,type = 'response')
-sigmoidCal <- glm(relevel(Class,ref='Dead')~xgbsmote,simulatedTrain,family = 'binomial')
-coef(summary(sigmoidCal))
-simulatedTrain$xgbsmoteSig = predict(sigmoidCal,type = 'response')
+boostsigmoidCal <- glm(relevel(Class,ref='Dead')~boost,simulatedTrain,family = 'binomial')
+coef(summary(boostsigmoidCal))
+simulatedTrain$boostSig = predict(boostsigmoidCal,type = 'response')
+
+xgbsmotesigmoidCal <- glm(relevel(Class,ref='Dead')~xgbsmote,simulatedTrain,family = 'binomial')
+coef(summary(xgbsmotesigmoidCal))
+simulatedTrain$xgbsmoteSig = predict(xgbsmotesigmoidCal,type = 'response')
+
 calibration(x = Class~boost+boostSig,data = simulatedTrain) %>%
     xyplot(auto.key=list(columns=2))
 calibration(x = Class~xgbsmote+xgbsmoteSig,data = simulatedTrain) %>%
@@ -804,6 +806,10 @@ test.imp %<>%
       TicketChar = str_extract(Ticket,pattern = regex('^[a-zA-Z/\\.]+'))
       ) %>%
     mutate(
+        TicketChar = map_chr(.x=TicketChar,
+                             .f=~str_split(string=.x, pattern = '',simplify = T)[1])
+        ) %>%  
+    mutate(
       TicketChar = ifelse(is.na(TicketChar),'U',TicketChar),
       TicketNumStart = ifelse(is.na(TicketNumStart),0,TicketNumStart),
       TicketNumLen = ifelse(is.na(TicketNumLen),0,TicketNumLen),
@@ -820,17 +826,20 @@ test.imp$Fare[test.imp$Fare>232] <- 232
 
 
 ```{r}
-# boostPred <- predict(object = boostFit,
-                     # newdata = test.imp)
-
 dumV <- dummyVars(formula = ~.,data = test.imp)
 Dtest <- predict(dumV,test.imp)
 
-xgbPred <- predict(object = xgbFit,
-                   newdata = Dtest)
-rfPred <- predict(object = rfFit.y,
-                   newdata = test.imp)
+boostPred <- predict(object = boostFit, newdata = Dtest)
+xgbPred <- predict(object = xgbFit, newdata = Dtest)
+xgbsmotePred <- predict(object = xgbsmoteFit, newdata = Dtest)
+rfPred <- predict(object = rfFit.y, newdata = test.imp)
+rfsmotePred <- predict(object = rfsmoteFit.y, newdata = test.imp)
+
+boostProb <- data.frame(boost=predict(object = boostFit, newdata = test.imp,type = 'prob')[[1]])
+boostSigPred <- predict(object = boostsigmoidCal,newdata = boostProb,type = 'response')
+boostSigPred <- ifelse(boostSigPred>=0.5,'Survived','Dead')
 ```
+
 
 
 ```{r}
@@ -848,8 +857,6 @@ output <- write.csv(
     file = 'aug30.csv',
     row.names = F
 )
-
-
 
 ```
 
