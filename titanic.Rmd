@@ -858,6 +858,7 @@ histogram(~Survived+Dead,train.glmnet.Probs)
 
 ```
 
+
 # Compare models
 ```{r}
 re <-
@@ -874,9 +875,10 @@ re <-
     crfFit_class= crfFit_class
     )
     )
-summary(re)
+# summary(re)
 bwplot(re)
-summary(diff(re))
+dotplot(re)
+# summary(diff(re))
 ```
 
 Calibration curves...
@@ -1020,7 +1022,25 @@ xgbsmotesigmoidCal
 xgbProb <- data.frame(xgbsmote=predict(object = xgbsmoteFit, newdata = Dtest,type = 'prob')[[1]])
 xgbsmoteSigPred <- predict(object = xgbsmotesigmoidCal,newdata = xgbProb,type = 'response')
 xgbsmoteSigPred <- ifelse(xgbsmoteSigPred>0.5,1,2)
+
+
+crfPred <- predict(crfFit,newdata = test.imp)
+crfClassPred <- predict(crfFit_class,newdata = test.imp)
 ```
+
+
+Combined data... ensemble voting model...
+```{r}
+d <- data.frame(boostPred,xgbPred,rfPred,xgbsmotePred,rfsmotePred,boostSigPred,crfPred,crfClassPred)
+map_df(d,~as.numeric(.x)*-1+2) -> d
+d %<>% 
+    mutate(Avg=rowMeans(.),
+           Sums = rowSums(.),
+           EnsembleVote = as.numeric(Sums>4))
+
+ensemblePred <- d$EnsembleVote
+```
+
 
 
 ## Write results
@@ -1051,12 +1071,16 @@ for(m in ls(pattern = 'Pred')) {
 
 # Misc - delete later...
 ```{r}
-d <- data.frame(boostPred,xgbPred,rfPred,xgbsmotePred,rfsmotePred,boostSigPred)
+d <- data.frame(boostPred,xgbPred,rfPred,xgbsmotePred,rfsmotePred,boostSigPred,crfPred,crfClassPred)
 map_df(d,~as.numeric(.x)*-1+2) -> d
-d %>% mutate(Avg=rowMeans(.)) -> d
-d %>% rownames_to_column('rowid') %>% reshape2::melt(id.vars='rowid') %>% 
-    ggplot(aes(x=rowid, y=value))+
-    geom_point(aes(col=variable))
+d %<>% 
+    mutate(Avg=rowMeans(.),
+           Sums = rowSums(.),
+           EnsembleVote = as.numeric(Sums>4))
+
+#d %>% rownames_to_column('rowid') %>% reshape2::melt(id.vars='rowid') %>% 
+#    ggplot(aes(x=rowid, y=value))+
+#    geom_point(aes(col=variable))
 ```
 
 ```{r}
