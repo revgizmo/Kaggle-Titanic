@@ -466,7 +466,7 @@ Furthermore, given the 80:20 class-imbalance, I'm also trying out [smote](https:
 
 Tuning parameter searches (aka hypertuning) is performed using the `tuneGrid` parameter in the `train()` call. The best model is selected using the AUC of the ROC. Here are the models and a few intermediate results for each model. At the end, I've compared the performance of all the models together.
 
-## Extreme Gradient Boosting (xgboost)
+## Extreme Gradient Boosting (xgboost - 5repeat-10fold-cv)
 
 
 ```{r, echo=TRUE}
@@ -505,6 +505,46 @@ xgb.importance(feature_names = colnames(Dtrain),model = xgbFit$finalModel) %>%
 
 densityplot(xgbFit,pch='|')
 predict(xgbFit,type = 'prob') -> train.Probs
+histogram(~Survived+Dead,train.Probs)
+```
+
+## Extreme Gradient Boosting (xgboost - 5test-train split)
+```{r, echo=TRUE}
+ctrl <- trainControl(method = 'LGOCV',
+                     number = 50,
+                     verboseIter = T,
+                     classProbs = TRUE,
+                     summaryFunction = twoClassSummary
+                     # sampling = 'smote'
+                     )
+set.seed(1)
+xgbGrid <- expand.grid(
+    nrounds=c(2,3,4,5,6,7),
+    max_depth=c(2,3,4,5,6,7),
+    eta=c(0.3,0.5),
+    gamma=1,
+    colsample_bytree=1,
+    min_child_weight=1,
+    subsample=1
+)
+dumV <- dummyVars(formula = Survived~.,data = train.imp)
+Dtrain <- predict(dumV,train.imp)
+xgbFit.LGOCV <- train(
+    x=Dtrain,
+    y=train.imp$Survived,
+    method = 'xgbTree',
+    trControl = ctrl,
+    # metric = "Kappa",
+    tuneGrid = xgbGrid,
+    verbose = TRUE
+)
+xgbFit.LGOCV
+plot(xgbFit.LGOCV)
+xgb.importance(feature_names = colnames(Dtrain),model = xgbFit.LGOCV$finalModel) %>%
+    xgb.ggplot.importance()
+
+densityplot(xgbFit.LGOCV,pch='|')
+predict(xgbFit.LGOCV,type = 'prob') -> train.Probs
 histogram(~Survived+Dead,train.Probs)
 ```
 
@@ -550,6 +590,48 @@ predict(xgbsmoteFit,type = 'prob') -> train.Probs
 histogram(~Survived+Dead,train.Probs)
 ```
 
+## Extreme Gradient Boosting (xgboost) - down Sampling
+```{r}
+ctrl <- trainControl(method = "repeatedcv",
+                     repeats = 5,
+                     verboseIter = T,
+                     classProbs = TRUE,
+                     summaryFunction = twoClassSummary,
+                     sampling = 'down'
+                     )
+xgbGrid <- expand.grid(
+    nrounds=c(2,3,4,5,6,7),
+    max_depth=c(2,3,4,5,6,7),
+    eta=c(0.3,0.5),
+    gamma=1,
+    colsample_bytree=1,
+    min_child_weight=1,
+    subsample=1
+)
+dumV <- dummyVars(formula = Survived~.,data = train.imp)
+Dtrain <- predict(dumV,train.imp)
+set.seed(1)
+xgbdownFit <- train(
+    x=Dtrain,
+    y=train.imp$Survived,
+    method = 'xgbTree',
+    trControl = ctrl,
+    # metric = "Kappa",
+    tuneGrid = xgbGrid,
+    verbose = TRUE
+)
+xgbdownFit
+plot(xgbdownFit)
+xgb.importance(feature_names = colnames(Dtrain),model = xgbdownFit$finalModel)
+xgb.importance(feature_names = colnames(Dtrain),model = xgbdownFit$finalModel) %>%
+xgb.ggplot.importance()
+
+densityplot(xgbdownFit,pch='|')
+predict(xgbdownFit,type = 'raw') -> train.Class
+predict(xgbdownFit,type = 'prob') -> train.Probs
+histogram(~Survived+Dead,train.Probs)
+```
+
 ## Gradient Boosting (gbm)
 
 ```{r}
@@ -587,7 +669,7 @@ predict(boostFit,type = 'prob') -> train.Probs
 histogram(~Survived+Dead,train.Probs)
 ```
 
-## Random Forest (rf)
+## Random Forest (custom rf)
 ```{r}
 
 customRF <-
@@ -644,35 +726,46 @@ customRF$levels <- function(x)
 customRF
     
     
-    ctrl <- trainControl(
+ctrl <- trainControl(
     method = "repeatedcv",
     repeats = 5,
     verboseIter = T,
     classProbs = TRUE,
     summaryFunction = twoClassSummary,
     # sampling = 'smote'
-    )
-    
-    crfGrid <- expand.grid(
+)
+crfGrid <- expand.grid(
     mtry = c(10, 15, 20, 29),
     ntree = c(100, 300, 500),
     nodesize = c(1, 5, 10),
     replace = c(T, F)
     # classwt = c(0.6, 0.8)
-    )
-    set.seed(1)
-    crfFit <- train(
+)
+set.seed(1)
+crfFit <- train(
     form = Survived ~ .,
     data = train.imp,
     method = customRF,
     trControl = adapt_ctrl,
     # metric = "Kappa",
     tuneGrid = crfGrid,
-    verbose = TRUE
-    )
+    verbose = TRUE,
+    classwt = c(0.38, 0.61)
+)
+crfFit_class <- train(
+    form = Survived ~ .,
+    data = train.imp,
+    method = customRF,
+    trControl = adapt_ctrl,
+    # metric = "Kappa",
+    tuneGrid = crfGrid,
+    verbose = TRUE,
+    classwt = c(0.38, 0.61)
+)
     
 ```
 
+## Random Forest (rf)
 ```{r}
 adapt_ctrl <- trainControl(method = "repeatedcv",
                      repeats = 5,
@@ -766,18 +859,19 @@ histogram(~Survived+Dead,train.glmnet.Probs)
 ```
 
 # Compare models
-
 ```{r}
 re <-
     resamples(
     x = list(
     xgb = xgbFit,
     xgbsmote = xgbsmoteFit,
+    xgbdown = xgbdownFit,
     rf = rfFit.y,
     rfsmote = rfsmoteFit.y,
     gbm = boostFit,
     elastinet=glmnetFit,
-    crf = crfFit
+    crf = crfFit,
+    crfFit_class= crfFit_class
     )
     )
 summary(re)
@@ -785,7 +879,7 @@ bwplot(re)
 summary(diff(re))
 ```
 
-
+Calibration curves...
 ```{r}
 simulatedTrain <- data.frame(Class = train.imp$Survived)
 simulatedTrain$rf = predict(rfFit.y,type = 'prob')[[1]]
@@ -794,7 +888,6 @@ simulatedTrain$xgb = predict(xgbFit,type = 'prob')[[1]]
 simulatedTrain$xgbsmote = predict(xgbsmoteFit,type = 'prob')[[1]]
 simulatedTrain$boost = predict(boostFit,type = 'prob')[[1]]
 ```
-
 ```{r}
 calCurve <- calibration(x = Class~rf+rfsmote+xgb+xgbsmote+boost,data = simulatedTrain)
 xyplot(calCurve,auto.key=list(columns=3))
@@ -818,8 +911,8 @@ calibration(x = Class~xgbsmote+xgbsmoteSig,data = simulatedTrain) %>%
 ```
 
 
-# Evaluation
-
+# Test Set Evaluation
+## Create test set
 ```{r}
 test.imp <- test.raw
 
@@ -908,8 +1001,7 @@ test.imp$Fare[is.na(test.imp$Fare)] <- 14.4542
 # test.imp$Fare[test.imp$Fare>232] <- 232
 
 ```
-
-
+## Predict test results
 ```{r}
 dumV <- dummyVars(formula = ~.,data = test.imp)
 Dtest <- predict(dumV,test.imp)
@@ -931,7 +1023,7 @@ xgbsmoteSigPred <- ifelse(xgbsmoteSigPred>0.5,1,2)
 ```
 
 
-
+## Write results
 ```{r}
 PID <-
     readData(Titanic.path,
@@ -940,7 +1032,6 @@ PID <-
     missing.types)
 PID <- PID$PassengerId
 ```
-
 ```{r}
 for(m in ls(pattern = 'Pred')) {
     write.csv(
@@ -958,7 +1049,7 @@ for(m in ls(pattern = 'Pred')) {
 
 
 
-
+# Misc - delete later...
 ```{r}
 d <- data.frame(boostPred,xgbPred,rfPred,xgbsmotePred,rfsmotePred,boostSigPred)
 map_df(d,~as.numeric(.x)*-1+2) -> d
@@ -967,7 +1058,6 @@ d %>% rownames_to_column('rowid') %>% reshape2::melt(id.vars='rowid') %>%
     ggplot(aes(x=rowid, y=value))+
     geom_point(aes(col=variable))
 ```
-
 
 ```{r}
 train.imp %>% 
@@ -979,4 +1069,3 @@ train.imp %>%
         S=sd(Age)
     )
 ```
-
