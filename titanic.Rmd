@@ -93,6 +93,7 @@ Quick investigation of missing values can be done using the `complete.cases()`, 
 #Complete cases (percentages)
 round(prop.table(table(complete.cases(train.raw))),2)
 ```
+
 Amelia lets us graphically investigate which variables have missing data. `purr::map_xxx()` gives this same information numerically in a succint fashion.
 ```{r, message=FALSE, warning=FALSE}
 missmap(train.raw, main='Missing Values Analysis using Amelia ordered by % missing', col=c('red', 'gray'),legend = F,rank.order = T)
@@ -101,6 +102,7 @@ map_int(train.raw,~sum(is.na(.x)))
 #Missing cases (percentages):
 round(map_dbl(train.raw,~sum(is.na(.x))/length(.x)),2)
 ```
+
 Cabin has a large number of missing values (77% missing). Imputing this variable may prove challenging or even useless. Age (19.9% missing) and Embarked (0.2%) missing are much more managable.
 
 ***
@@ -243,10 +245,10 @@ train.imp$Embarked[is.na(train.imp$Embarked)] <- 'S'
 The names have titles embedded in the strings. I can extract these using regex. Master, Miss, Mr and Mrs are the most popular - no surprise there, with lots of other titles.  Here's the distribution of the titles by age. These can be used to impute the missing age values.
 
 ```{r, message=FALSE, warning=FALSE}
-train.raw$title <- str_extract(pattern = '[a-zA-Z]+(?=\\.)',string = train.raw$Name)
-train.raw$title <- as.factor(train.raw$title)
+train.imp$title <- str_extract(pattern = '[a-zA-Z]+(?=\\.)',string = train.imp$Name)
+train.imp$title <- as.factor(train.imp$title)
 
-train.raw %>%
+train.imp %>%
     na.omit() %>%
     group_by(title) %>%
     dplyr::summarise(Count=n(), Median_Age=round(median(Age),0)) %>%
@@ -254,7 +256,7 @@ train.raw %>%
 ```
 
 ```{r, message=FALSE, warning=FALSE}
-ggplot(train.raw,aes(x=title,y=Age))+
+ggplot(train.imp,aes(x=title,y=Age))+
     stat_summary(aes(y = Age,group=1), fun.y=median, colour="red", geom="point",group=1)+
     geom_jitter(shape=21,alpha=.6,col='blue')+
     theme_bw()+
@@ -265,17 +267,12 @@ ggplot(train.raw,aes(x=title,y=Age))+
 Grouping similar titles together, I've kept a few titles - Officer, Royalty, Mr, Mrs and Miss.
 
 ```{r}
-train.imp <- train.raw
 train.imp$title <- as.character(train.imp$title)
-train.imp$title[train.imp$title %in% c('Capt','Col','Major')] <- 'Officer'
+train.imp$title[train.imp$title %in% c('Col','Major')] <- 'Officer'
 train.imp$title[train.imp$title %in% c('Don','Dr','Rev','Sir','Jonkheer','Countess','Lady','Dona')] <- 'Royalty'
 train.imp$title[train.imp$title %in% c('Mrs','Mme')] <- 'Mrs'
 train.imp$title[train.imp$title %in% c('Ms','Mlle')] <- 'Miss'
 train.imp$title <- as.factor(train.imp$title)
-
-train.imp %>%
-    group_by(title) %>%
-    summarise(Median_Age=median(Age,na.rm = T))
 ```
 
 ```{r}
@@ -466,9 +463,50 @@ Furthermore, given the 80:20 class-imbalance, I'm also trying out [smote](https:
 
 Tuning parameter searches (aka hypertuning) is performed using the `tuneGrid` parameter in the `train()` call. The best model is selected using the AUC of the ROC. Here are the models and a few intermediate results for each model. At the end, I've compared the performance of all the models together.
 
+## Extreme Gradient Boosting (xgboost - 5repeat-10fold-cv - smaller dataset)
+```{r, echo=TRUE}
+ctrl <- trainControl(method = "repeatedcv",
+                     repeats = 5,
+                     verboseIter = T,
+                     classProbs = TRUE,
+                     summaryFunction = twoClassSummary
+                     # sampling = 'smote'
+                     )
+set.seed(1)
+xgbGrid <- expand.grid(
+    nrounds=c(2,3,4,5,6,7),
+    max_depth=c(2,3,4,5,6,7),
+    eta=c(0.3,0.5),
+    gamma=1,
+    colsample_bytree=1,
+    min_child_weight=1,
+    subsample=1
+)
+df.smaller <- train.imp %>% dplyr::select(
+    -almostadult, -LargeParCh, - LargeSibSp,-CabinMissing,-TopDeck,-MidDeck,-LowerDeck,-NumberofCabins
+)
+dumV <- dummyVars(formula = Survived~.,data = df.smaller)
+Dtrain <- predict(dumV,df.smaller)
+xgbsmallFit <- train(
+    x=Dtrain,
+    y=train.imp$Survived,
+    method = 'xgbTree',
+    trControl = ctrl,
+    # metric = "Kappa",
+    tuneGrid = xgbGrid,
+    verbose = TRUE
+)
+xgbsmallFit
+plot(xgbsmallFit)
+xgb.importance(feature_names = colnames(Dtrain),model = xgbsmallFit$finalModel) %>%
+    xgb.ggplot.importance()
+
+densityplot(xgbsmallFit,pch='|')
+predict(xgbsmallFit,type = 'prob') -> train.Probs
+histogram(~Survived+Dead,train.Probs)
+```
+
 ## Extreme Gradient Boosting (xgboost - 5repeat-10fold-cv)
-
-
 ```{r, echo=TRUE}
 ctrl <- trainControl(method = "repeatedcv",
                      repeats = 5,
@@ -765,6 +803,34 @@ crfFit_class <- train(
     
 ```
 
+## Conditional Forest (ctree)
+```{r}
+ctrl <- trainControl(method = "repeatedcv",
+                     repeats = 5,
+                     verboseIter = T,
+                     classProbs = TRUE,
+                     summaryFunction = twoClassSummary
+                     # sampling = 'smote'
+                     )
+
+cforestGrid <- expand.grid(mtry=c(10,20,30,40))
+set.seed(1)
+cforestFit <- train(
+    form = Survived~.,
+    data = train.imp,
+    method = 'cforest',
+    trControl = ctrl,
+    tuneGrid = cforestGrid
+    # verbose = TRUE
+    # ntree = 400
+)
+cforestFit
+plot(cforestFit)
+densityplot(cforestFit,pch='|')
+predict(cforestFit,type = 'prob') -> train.crf.Probs
+histogram(~Survived+Dead,train.crf.Probs)
+```
+
 ## Random Forest (rf)
 ```{r}
 adapt_ctrl <- trainControl(method = "repeatedcv",
@@ -872,7 +938,9 @@ re <-
     gbm = boostFit,
     elastinet=glmnetFit,
     crf = crfFit,
-    crfFit_class= crfFit_class
+    crfFit_class= crfFit_class,
+    xgbsmall=xgbsmallFit,
+    cforest=cforestFit
     )
     )
 # summary(re)
@@ -881,7 +949,7 @@ dotplot(re)
 # summary(diff(re))
 ```
 
-Calibration curves...
+## Calibration curves...
 ```{r}
 simulatedTrain <- data.frame(Class = train.imp$Survived)
 simulatedTrain$rf = predict(rfFit.y,type = 'prob')[[1]]
@@ -925,7 +993,7 @@ test.imp$Embarked[is.na(test.imp$Embarked)]='S'
 test.raw$title <- str_extract(pattern = '[a-zA-Z]+(?=\\.)',string = test.raw$Name)
 #test.raw$title <- as.factor(test.raw$title)
 test.imp$title <- as.character(test.raw$title)
-test.imp$title[test.imp$title %in% c('Capt','Col','Major')] <- 'Officer'
+test.imp$title[test.imp$title %in% c('Col','Major')] <- 'Officer'
 test.imp$title[test.imp$title %in% c('Don','Dr','Rev','Sir','Jonkheer','Countess','Lady','Dona')] <- 'Royalty'
 test.imp$title[test.imp$title %in% c('Mrs','Mme')] <- 'Mrs'
 test.imp$title[test.imp$title %in% c('Ms','Mlle')] <- 'Miss'
@@ -1026,6 +1094,9 @@ xgbsmoteSigPred <- ifelse(xgbsmoteSigPred>0.5,1,2)
 
 crfPred <- predict(crfFit,newdata = test.imp)
 crfClassPred <- predict(crfFit_class,newdata = test.imp)
+
+xgbdownPred <- predict(xgbdownFit,newdata = Dtest)
+
 ```
 
 
@@ -1038,7 +1109,7 @@ d %<>%
            Sums = rowSums(.),
            EnsembleVote = as.numeric(Sums>4))
 
-ensemblePred <- d$EnsembleVote
+ensemblePred <- -1*(d$EnsembleVote-2)
 ```
 
 
