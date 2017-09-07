@@ -496,6 +496,7 @@ xgbsmallFit <- train(
     tuneGrid = xgbGrid,
     verbose = TRUE
 )
+save(xgbsmallFit,file = 'xgbsmallFit')
 xgbsmallFit
 plot(xgbsmallFit)
 xgb.importance(feature_names = colnames(Dtrain),model = xgbsmallFit$finalModel) %>%
@@ -536,6 +537,7 @@ xgbFit <- train(
     tuneGrid = xgbGrid,
     verbose = TRUE
 )
+save(xgbFit,file = 'xgbFit')
 xgbFit
 plot(xgbFit)
 xgb.importance(feature_names = colnames(Dtrain),model = xgbFit$finalModel) %>%
@@ -576,6 +578,7 @@ xgbFit.LGOCV <- train(
     tuneGrid = xgbGrid,
     verbose = TRUE
 )
+save(xgbFit.LGOCV,file = 'xgbFit.LGOCV')
 xgbFit.LGOCV
 plot(xgbFit.LGOCV)
 xgb.importance(feature_names = colnames(Dtrain),model = xgbFit.LGOCV$finalModel) %>%
@@ -616,6 +619,7 @@ xgbsmoteFit <- train(
     tuneGrid = xgbGrid,
     verbose = TRUE
 )
+save(xgbsmoteFit,file = 'xgbsmoteFit')
 xgbsmoteFit
 plot(xgbsmoteFit)
 xgb.importance(feature_names = colnames(Dtrain),model = xgbsmoteFit$finalModel)
@@ -658,6 +662,7 @@ xgbdownFit <- train(
     tuneGrid = xgbGrid,
     verbose = TRUE
 )
+save(xgbdownFit,file = 'xgbdownFit')
 xgbdownFit
 plot(xgbdownFit)
 xgb.importance(feature_names = colnames(Dtrain),model = xgbdownFit$finalModel)
@@ -693,11 +698,12 @@ Dtrain <- predict(dumV,train.imp)
 set.seed(1)
 boostFit <- train(
     x = Dtrain,
-    y = boost.train$Survived,
+    y = train.imp$Survived,
     trControl=ctrl,
     method='gbm',
     tuneGrid=gbmGrid
 )
+save(boostFit,file = 'boostFit')
 boostFit
 plot(boostFit)
 xyplot(oobag.improve~1:1100,data=boostFit$finalModel,alpha=.5,xlab = 'n.trees')
@@ -763,7 +769,15 @@ customRF$levels <- function(x)
 
 customRF
     
-    
+  adapt_ctrl <- trainControl(method = "repeatedcv",
+                     repeats = 5,
+                     verboseIter = T,
+                     classProbs = TRUE,
+                     summaryFunction = twoClassSummary,
+                     adaptive = list(min = 5, alpha = 0.05, 
+                                             method = "gls", complete = TRUE),
+                     search = 'random'
+                     )  
 ctrl <- trainControl(
     method = "repeatedcv",
     repeats = 5,
@@ -800,7 +814,8 @@ crfFit_class <- train(
     verbose = TRUE,
     classwt = c(0.38, 0.61)
 )
-    
+save(crfFit,file = 'crfFit')
+save(crfFit_class,file = 'crfFit_class')
 ```
 
 ## Conditional Forest (ctree)
@@ -824,6 +839,7 @@ cforestFit <- train(
     # verbose = TRUE
     # ntree = 400
 )
+save(cforestFit,file = 'cforestFit')
 cforestFit
 plot(cforestFit)
 densityplot(cforestFit,pch='|')
@@ -854,6 +870,7 @@ rfFit.y <- train(
     verbose = TRUE,
     ntree = 400
 )
+save(rfFit.y,file = 'rfFit.y')
 rfFit.y
 plot(rfFit.y)
 plot(rfFit.y$finalModel)
@@ -885,6 +902,7 @@ rfsmoteFit.y <- train(
     verbose = TRUE,
     ntree = 400
 )
+save(rfsmoteFit.y,file = 'rfsmoteFit.y')
 rfsmoteFit.y
 plot(rfsmoteFit.y)
 plot(rfsmoteFit.y$finalModel)
@@ -915,6 +933,7 @@ glmnetFit <- train(
     method='glmnet',
     tuneGrid=glmnetGrid
 )
+save(glmnetFit,file = 'glmnetFit')
 glmnetFit
 plot(glmnetFit,plotType='level')
 plot(varImp(glmnetFit))
